@@ -1,103 +1,425 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
+import cytoscape from "cytoscape";
+import edgehandles from "cytoscape-edgehandles";
+
+// Registrar plugin una sola vez (HMR-safe)
+if (typeof window !== "undefined" && !(globalThis as any).__EDGEHANDLES_REGISTERED) {
+  cytoscape.use(edgehandles as any);
+  (globalThis as any).__EDGEHANDLES_REGISTERED = true;
+}
+
+// React wrapper para Cytoscape (sin SSR)
+const CytoscapeComponent = dynamic(() => import("react-cytoscapejs"), {
+  ssr: false,
+  loading: () => <div style={{ padding: 16 }}>Cargando editor…</div>,
+});
+
+// ---------- Utilidades ----------
+function hasCycle(
+  nodes: string[],
+  edges: { source: string; target: string }[],
+  candidate?: { source: string; target: string }
+) {
+  const adj: Record<string, string[]> = {};
+  nodes.forEach((id) => (adj[id] = []));
+  edges.forEach((e) => adj[e.source]?.push(e.target));
+  if (candidate) adj[candidate.source]?.push(candidate.target);
+
+  const state: Record<string, number> = {}; // 0=unvisited,1=visiting,2=done
+  const dfs = (u: string): boolean => {
+    state[u] = 1;
+    for (const v of adj[u] || []) {
+      if (state[v] === 1) return true; // back-edge
+      if (state[v] !== 2 && dfs(v)) return true;
+    }
+    state[u] = 2;
+    return false;
+  };
+  for (const id of nodes) if (!state[id] && dfs(id)) return true;
+  return false;
+}
+
+// ---------- Página (app/page.tsx) ----------
+export default function Page() {
+  const cyRef = useRef<cytoscape.Core | null>(null);
+  const ehRef = useRef<any>(null);
+  const imgInputRef = useRef<HTMLInputElement | null>(null);
+  const [seq, setSeq] = useState(3);
+  const [theme, setTheme] = useState<"light" | "dark">("light");
+
+  // Paletas de color (light/dark)
+  const colors = useMemo(() => {
+    if (theme === "dark") {
+      return {
+        bg: "#0b1220",
+        text: "#e5e7eb",
+        nodeBg: "#0f172a",
+        nodeBorder: "#475569",
+        nodeHalo: "rgba(30, 41, 59, 0.35)",
+        edge: "#60a5fa",
+        border: "rgba(148,163,184,0.25)",
+        btnText: "#0f172a",
+        btnBorder: "#1f2937",
+      } as const;
+    }
+    return {
+      bg: "#f7f8fb",
+      text: "#0f172a",
+      nodeBg: "#ffffff",
+      nodeBorder: "#334155", // gris azulado oscuro
+      nodeHalo: "rgba(30, 41, 59, 0.15)",
+      edge: "#2563eb",
+      border: "rgba(15,23,42,0.12)",
+      btnText: "#0f172a",
+      btnBorder: "#cbd5e1",
+    } as const;
+  }, [theme]);
+
+  // Estilos (aristas animadas gratis con dashed)
+  const stylesheet = useMemo<cytoscape.Stylesheet[]>(
+    () => [
+      {
+        selector: "node",
+        style: {
+          width: 220,
+          height: 78,
+          shape: "round-rectangle",
+          backgroundColor: colors.nodeBg,
+          borderColor: colors.nodeBorder,
+          borderWidth: 2,
+          color: colors.text,
+          label: "data(label)",
+          fontSize: 13,
+          textWrap: "wrap",
+          textValign: "center",
+          textHalign: "center",
+          textMarginY: 4,
+          shadowBlur: 18,
+          shadowOpacity: 1,
+          shadowColor: colors.nodeHalo,
+          'background-fit': 'cover',
+          'background-image': 'data(img)'
+        },
+      },
+      { selector: "node:selected", style: { borderWidth: 3, borderColor: colors.edge } },
+      {
+        selector: "edge",
+        style: {
+          curveStyle: "bezier",
+          controlPointStepSize: 32,
+          width: 2,
+          lineColor: colors.edge,
+          targetArrowColor: colors.edge,
+          targetArrowShape: "triangle",
+          arrowScale: 1,
+          lineStyle: "dashed",
+          lineDashPattern: [10, 10],
+        },
+      },
+      { selector: "edge:selected", style: { width: 3 } },
+      // Handle del plugin
+      {
+        selector: '.eh-handle',
+        style: {
+          'background-color': colors.edge,
+          'width': 14,
+          'height': 14,
+          'shape': 'ellipse',
+          'overlay-opacity': 0,
+          'border-width': 2,
+          'border-color': '#ffffff',
+        }
+      },
+    ],
+    [colors]
+  );
+
+  // Animación continua: desplazar guiones en edges con clase .animated (gratis)
+  useEffect(() => {
+    let raf = 0;
+    let offset = 0;
+    const animate = () => {
+      const cy = cyRef.current;
+      if (cy) cy.edges(".animated").style("line-dash-offset", offset);
+      offset = (offset + 1) % 20;
+      raf = requestAnimationFrame(animate);
+    };
+    raf = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  // Elementos iniciales
+  const elements = useMemo(
+    () => [
+      { data: { id: "n1", label: "Ingesta" }, position: { x: 160, y: 120 } },
+      { data: { id: "n2", label: "Transformar" }, position: { x: 500, y: 320 } },
+      { data: { id: "e1", source: "n1", target: "n2" }, classes: "animated" },
+    ],
+    []
+  );
+
+  const layout = { name: "preset" } as cytoscape.LayoutOptions;
+
+  // EdgeHandles: agrega "círculos" (handles) al acercarse a un nodo para iniciar una arista
+  const setupEdgeHandles = (cy: cytoscape.Core) => {
+    const eh = (cy as any).edgehandles({
+      toggleOffOnLeave: true,
+      handleNodes: "node",
+      edgeType: () => "flat",
+      loopAllowed: () => false,
+      handlePosition: "bottom",
+      handleColor: colors.nodeBorder,
+      handleLineWidth: 2,
+      handleOutlineColor: "#ffffff",
+      handleOutlineWidth: 3,
+      handleSize: 18,
+      hoverDelay: 20,
+      edgeParams: () => ({ classes: "animated" }),
+      preview: true,
+      ghost: true,
+      ghostEdgeColor: colors.edge,
+      ghostEdgeWidth: 2,
+    });
+    ehRef.current = eh;
+
+    // Validación al completar conexión
+    cy.on("ehcomplete", (_evt, data) => {
+      const { source, target, edge } = data as any;
+      if (!source || !target || !edge) return;
+
+      if (source.id() === target.id()) {
+        edge.remove();
+        alert("❌ No puedes conectar un nodo consigo mismo.");
+        return;
+      }
+
+      const nodes = cy.nodes().map((n) => n.id());
+      const edgesNow = cy
+        .edges()
+        .map((e) => ({ source: e.source().id(), target: e.target().id() }));
+      const candidate = { source: source.id(), target: target.id() };
+      if (hasCycle(nodes, edgesNow, candidate)) {
+        edge.remove();
+        alert("⚠️ Conexión rechazada: crearía un ciclo en el DAG.");
+        return;
+      }
+
+      edge.addClass("animated");
+    });
+  };
+
+  // Editor inline para título de nodo
+  const [nodeEditor, setNodeEditor] = useState<{
+    visible: boolean;
+    id: string | null;
+    value: string;
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+  }>({ visible: false, id: null, value: "", x: 0, y: 0, w: 200, h: 32 });
+
+  const openInlineEditor = (n: cytoscape.NodeSingular) => {
+    const cy = cyRef.current; if (!cy) return;
+    const bb = n.renderedBoundingBox();
+    const rect = cy.container().getBoundingClientRect();
+    const padding = 8;
+    setNodeEditor({
+      visible: true,
+      id: n.id(),
+      value: (n.data("label") as string) || "",
+      x: rect.left + bb.x1 + padding,
+      y: rect.top + bb.y1 + padding,
+      w: bb.w - padding * 2,
+      h: 32,
+    });
+  };
+
+  const onCyReady = (cy: cytoscape.Core) => {
+    cyRef.current = cy;
+    setupEdgeHandles(cy);
+
+    // Asegurar que se puedan ARRÁSTRAR los nodos
+    cy.nodes().grabify();
+
+    // Doble click para renombrar nodo inline
+    cy.on("dblclick", "node", (e) => openInlineEditor(e.target as any));
+    cy.on("cxttap", "node", (e) => openInlineEditor(e.target as any));
+
+    // Delete/Backspace elimina selección
+    const keyHandler = (ev: KeyboardEvent) => {
+      if (ev.key === "Delete" || ev.key === "Backspace") {
+        const sel = cy.$(":selected");
+        if (sel.length > 0) {
+          ev.preventDefault();
+          sel.remove();
+        }
+      }
+    };
+    window.addEventListener("keydown", keyHandler);
+    cy.once("destroy", () => window.removeEventListener("keydown", keyHandler));
+  };
+
+  // Crear nodo de texto
+  const addNode = () => {
+    const cy = cyRef.current; if (!cy) return;
+    const id = `n${seq}`;
+    const label = `Bloque ${seq}`;
+    setSeq((s) => s + 1);
+
+    // Posicionar cerca del centroide actual
+    const nodes = cy.nodes();
+    let pos = { x: cy.width() / 2, y: cy.height() / 2 };
+    if (nodes.length > 0) {
+      const sum = nodes.reduce(
+        (acc, n) => ({ x: acc.x + n.position("x"), y: acc.y + n.position("y") }),
+        { x: 0, y: 0 }
+      );
+      pos = { x: sum.x / nodes.length + (Math.random() - 0.5) * 140, y: sum.y / nodes.length + (Math.random() - 0.5) * 140 };
+    }
+
+    const newNode = cy.add({ data: { id, label }, position: pos });
+    cy.fit(undefined, 60);
+    openInlineEditor(newNode);
+  };
+
+  // Importar imagen como nodo (imagen contenida)
+  const triggerImportImage = () => imgInputRef.current?.click();
+
+  const onImportImage: React.ChangeEventHandler<HTMLInputElement> = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const cy = cyRef.current; if (!cy) return;
+    const id = `img-${Date.now()}`;
+    const url = URL.createObjectURL(file);
+
+    // Posicionar al centro
+    const pos = { x: cy.width() / 2, y: cy.height() / 2 };
+    cy.add({ data: { id, label: "", img: url }, position: pos });
+    cy.fit(undefined, 60);
+
+    // Limpia input
+    if (imgInputRef.current) imgInputRef.current.value = "";
+  };
+
+  // Guardar cambio desde editor inline
+  const commitNodeEdit = () => {
+    if (!nodeEditor.visible || !nodeEditor.id) return;
+    const cy = cyRef.current; if (!cy) return;
+    const n = cy.getElementById(nodeEditor.id);
+    n.data("label", nodeEditor.value);
+    setNodeEditor((s) => ({ ...s, visible: false, id: null }));
+  };
+
   return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+    <div style={{ position: "relative", height: "100vh", width: "100vw", background: colors.bg, color: colors.text }}>
+      <CytoscapeComponent
+        cy={(cy: any) => onCyReady(cy)}
+        elements={elements as any}
+        layout={layout as any}
+        style={{ width: "100%", height: "100%" }}
+        stylesheet={stylesheet as any}
+        boxSelectionEnabled={true}
+        autoungrabify={false}
+        minZoom={0.3}
+        maxZoom={2.5}
+      />
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
-        </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+      {/* Editor inline */}
+      {nodeEditor.visible && (
+        <input
+          autoFocus
+          value={nodeEditor.value}
+          onChange={(e) => setNodeEditor((s) => ({ ...s, value: e.target.value }))}
+          onBlur={commitNodeEdit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") commitNodeEdit();
+            if (e.key === "Escape") setNodeEditor((s) => ({ ...s, visible: false, id: null }));
+          }}
+          style={{
+            position: "fixed",
+            left: nodeEditor.x,
+            top: nodeEditor.y,
+            width: Math.max(120, nodeEditor.w),
+            height: nodeEditor.h,
+            padding: "6px 10px",
+            borderRadius: 10,
+            border: `2px solid ${colors.edge}`,
+            outline: "none",
+            background: "#ffffff",
+            color: colors.text,
+            boxShadow: "0 10px 30px rgba(2,6,23,0.15)",
+            fontSize: 13,
+            fontWeight: 600,
+          }}
+        />
+      )}
+
+      {/* Botón flotante: Crear nodo (abajo al centro, BLANCO) */}
+      <button
+        onClick={addNode}
+        style={{
+          position: "fixed",
+          left: "50%",
+          bottom: 24,
+          transform: "translateX(-50%)",
+          background: "#ffffff",
+          border: `1px solid ${colors.btnBorder}`,
+          color: colors.btnText,
+          fontWeight: 700,
+          padding: "11px 16px",
+          borderRadius: 14,
+          cursor: "pointer",
+          boxShadow: "0 10px 30px rgba(2,6,23,0.15)",
+        }}
+      >
+        + Crear nodo
+      </button>
+
+      {/* Botón flotante: Importar imagen como nodo */}
+      <button
+        onClick={triggerImportImage}
+        style={{
+          position: "fixed",
+          left: 24,
+          bottom: 24,
+          background: "#ffffff",
+          border: `1px solid ${colors.btnBorder}`,
+          color: colors.btnText,
+          fontWeight: 700,
+          padding: "10px 14px",
+          borderRadius: 12,
+          cursor: "pointer",
+          boxShadow: "0 8px 24px rgba(2,6,23,0.12)",
+        }}
+      >
+        🖼️ Importar imagen
+      </button>
+      <input ref={imgInputRef} type="file" accept="image/*" onChange={onImportImage} style={{ display: "none" }} />
+
+      {/* Botón flotante: Cambio de tema */}
+      <button
+        onClick={() => setTheme((t) => (t === "light" ? "dark" : "light"))}
+        title="Cambiar tema"
+        style={{
+          position: "fixed",
+          right: 16,
+          top: 16,
+          background: "#ffffff",
+          border: `1px solid ${colors.btnBorder}`,
+          color: colors.btnText,
+          fontWeight: 700,
+          padding: "8px 12px",
+          borderRadius: 10,
+          cursor: "pointer",
+          boxShadow: "0 6px 16px rgba(2,6,23,0.12)",
+        }}
+      >
+        {theme === "light" ? "🌙 Dark" : "☀️ Light"}
+      </button>
     </div>
   );
 }
