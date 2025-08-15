@@ -44,6 +44,7 @@ export default function Page() {
   const imgInputRef = useRef<HTMLInputElement | null>(null);
   const [seq, setSeq] = useState(3);
   const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [expanded, setExpanded] = useState(false);
 
   // Paletas de color (light/dark)
   const colors = useMemo(() => {
@@ -61,7 +62,7 @@ export default function Page() {
       } as const;
     }
     return {
-      bg: "#ffffff", // Fondo blanco
+      bg: "#ffffff",
       text: "#0f172a",
       nodeBg: "#ffffff",
       nodeBorder: "#334155",
@@ -73,20 +74,29 @@ export default function Page() {
     } as const;
   }, [theme]);
 
-  const buttonBase = useMemo<React.CSSProperties>(
+  const fabStyle = useMemo<React.CSSProperties>(
     () => ({
-      background: "#ffffff",
-      border: `1px solid ${colors.btnBorder}`,
-      color: colors.btnText,
+      width: 56,
+      height: 56,
+      borderRadius: "50%",
+      border: "none",
+      background: colors.edge,
+      color: "#fff",
       fontWeight: 700,
-      padding: "16px 24px",
-      borderRadius: 16,
+      fontSize: 24,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
       cursor: "pointer",
-      boxShadow: "0 6px 16px rgba(2,6,23,0.12)",
-      fontSize: 20,
+      boxShadow: "0 6px 16px rgba(0,0,0,0.15)",
     }),
     [colors]
   );
+
+  useEffect(() => {
+    const cy = cyRef.current;
+    if (cy) cy.resize();
+  }, [expanded]);
 
   // Estilos (aristas animadas gratis con dashed)
   const stylesheet = useMemo<any[]>(
@@ -355,83 +365,41 @@ export default function Page() {
   return (
     <div
       style={{
-        display: "flex",
-        flexDirection: "column",
-        height: "100vh",
-        overflow: "hidden",
+        position: "relative",
+        minHeight: "100vh",
+        background: colors.bg,
+        color: colors.text,
       }}
     >
+      {expanded && (
+        <div
+          onClick={() => setExpanded(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.4)",
+            backdropFilter: "blur(4px)",
+            zIndex: 5,
+          }}
+        />
+      )}
+
       <div
         style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          padding: "8px 16px",
-          background: colors.bg,
-          borderBottom: `1px solid ${colors.border}`,
+          width: expanded ? "90vmin" : "80vmin",
+          height: expanded ? "90vmin" : "80vmin",
+          margin: expanded ? 0 : "40px auto",
+          position: expanded ? "fixed" : "relative",
+          top: expanded ? "50%" : undefined,
+          left: expanded ? "50%" : undefined,
+          transform: expanded ? "translate(-50%, -50%)" : undefined,
+          borderRadius: 16,
+          boxShadow: "0 10px 30px rgba(2,6,23,0.15)",
+          overflow: "hidden",
           zIndex: 10,
+          background: colors.bg,
         }}
       >
-        <h1 style={{ margin: 0, fontSize: 24, color: colors.text }}>
-          Editor de flujo (DAG)
-        </h1>
-        <div style={{ display: "flex", alignItems: "center" }}>
-          <button
-            onClick={addNode}
-            style={buttonBase}
-            title="Agregar nodo (Bloque)"
-          >
-            + Bloque
-          </button>
-          <button
-            onClick={triggerImportImage}
-            style={{ ...buttonBase, marginLeft: 8 }}
-            title="Importar imagen como nodo"
-          >
-            🖼️ Imagen
-          </button>
-          <button
-            onClick={zoomIn}
-            style={{ ...buttonBase, marginLeft: 8 }}
-            title="Acercar (Ctrl + ↑)"
-          >
-            🔍 +
-          </button>
-          <button
-            onClick={zoomOut}
-            style={{ ...buttonBase, marginLeft: 8 }}
-            title="Alejar (Ctrl + ↓)"
-          >
-            🔍 −
-          </button>
-          <select
-            value={theme}
-            onChange={(e) => setTheme(e.target.value as "light" | "dark")}
-            style={{
-              ...buttonBase,
-              marginLeft: 8,
-              padding: "8px 16px",
-              borderRadius: 16,
-              border: `1px solid ${colors.btnBorder}`,
-              background: colors.bg,
-              color: colors.text,
-              fontSize: 16,
-              appearance: "none",
-              backgroundImage:
-                theme === "dark"
-                  ? 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%23e5e7eb\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3E%3Cpath d=\'M12 2a10 10 0 0 0 0 20 10 10 0 0 0 0-20z\'/%3E%3C/svg%3E")'
-                  : 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%230f172a\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3E%3Cpath d=\'M12 2a10 10 0 0 0 0 20 10 10 0 0 0 0-20z\'/%3E%3C/svg%3E")',
-              backgroundSize: "16px 16px",
-              backgroundPosition: "right 8px center",
-              backgroundRepeat: "no-repeat",
-            }}
-          >
-            <option value="light">🌞 Claro</option>
-            <option value="dark">🌜 Oscuro</option>
-          </select>
-        </div>
-      </div>
-      <div style={{ position: "relative", flex: 1 }}>
         <CytoscapeComponent
           cy={onCyReady}
           elements={elements as any}
@@ -443,56 +411,115 @@ export default function Page() {
           minZoom={0.1}
           maxZoom={4}
         />
-        {nodeEditor.visible && (
-          <div
+
+        {expanded && (
+          <button
+            onClick={() => setExpanded(false)}
             style={{
               position: "absolute",
-              left: nodeEditor.x,
-              top: nodeEditor.y,
-              width: nodeEditor.w,
-              height: nodeEditor.h,
-              pointerEvents: "none",
+              top: 8,
+              right: 8,
+              width: 32,
+              height: 32,
+              borderRadius: "50%",
+              border: "none",
+              background: colors.edge,
+              color: "#fff",
+              fontSize: 18,
+              fontWeight: 700,
+              cursor: "pointer",
+              boxShadow: "0 4px 12px rgba(0,0,0,0.2)",
             }}
+            title="Cerrar"
           >
-            <input
-              type="text"
-              value={nodeEditor.value}
-              onChange={(e) =>
-                setNodeEditor((n) => ({ ...n, value: e.target.value }))
-              }
-              onBlur={() => {
-                const cy = cyRef.current;
-                if (!cy) return;
-                const node = cy.getElementById(nodeEditor.id!);
-                if (node && nodeEditor.value.trim() !== "") {
-                  node.data("label", nodeEditor.value.trim());
-                }
-                setNodeEditor((n) => ({ ...n, visible: false }));
-              }}
-              style={{
-                width: "100%",
-                height: "100%",
-                padding: 8,
-                borderRadius: 8,
-                border: `1px solid ${colors.btnBorder}`,
-                background: colors.nodeBg,
-                color: colors.text,
-                fontSize: 16,
-                fontWeight: 500,
-                outline: "none",
-                pointerEvents: "auto",
-              }}
-            />
-          </div>
+            ✕
+          </button>
         )}
-        <input
-          ref={imgInputRef}
-          type="file"
-          accept="image/*"
-          onChange={onImportImage}
-          style={{ display: "none" }}
-        />
       </div>
+
+      {/* Editor inline */}
+      {nodeEditor.visible && (
+        <input
+          autoFocus
+          value={nodeEditor.value}
+          onChange={(e) => setNodeEditor((s) => ({ ...s, value: e.target.value }))}
+          onBlur={commitNodeEdit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") commitNodeEdit();
+            if (e.key === "Escape")
+              setNodeEditor((s) => ({ ...s, visible: false, id: null }));
+          }}
+          style={{
+            position: "fixed",
+            left: nodeEditor.x,
+            top: nodeEditor.y,
+            width: Math.max(120, nodeEditor.w),
+            height: nodeEditor.h,
+            padding: "6px 10px",
+            borderRadius: 10,
+            border: `2px solid ${colors.edge}`,
+            outline: "none",
+            background: "#ffffff",
+            color: colors.text,
+            boxShadow: "0 10px 30px rgba(2,6,23,0.15)",
+            fontSize: 13,
+            fontWeight: 600,
+          }}
+        />
+      )}
+
+      {!expanded && (
+        <div
+          style={{
+            position: "fixed",
+            bottom: 16,
+            right: 16,
+            display: "flex",
+            flexDirection: "column",
+            gap: 12,
+            zIndex: 20,
+          }}
+        >
+          <button onClick={addNode} style={{ ...fabStyle }} title="Añadir nodo">
+            +
+          </button>
+          <button
+            onClick={triggerImportImage}
+            style={{ ...fabStyle }}
+            title="Importar imagen"
+          >
+            🖼️
+          </button>
+          <button onClick={zoomIn} style={{ ...fabStyle }} title="Acercar">
+            🔍+
+          </button>
+          <button onClick={zoomOut} style={{ ...fabStyle }} title="Alejar">
+            🔍-
+          </button>
+          <button
+            onClick={() => setTheme((t) => (t === "light" ? "dark" : "light"))}
+            title="Cambiar tema"
+            style={{ ...fabStyle }}
+          >
+            {theme === "light" ? "🌙" : "☀️"}
+          </button>
+          <button
+            onClick={() => setExpanded(true)}
+            style={{ ...fabStyle }}
+            title="Agrandar"
+          >
+            ⛶
+          </button>
+        </div>
+      )}
+
+      <input
+        ref={imgInputRef}
+        type="file"
+        accept="image/*"
+        onChange={onImportImage}
+        style={{ display: "none" }}
+      />
     </div>
   );
 }
