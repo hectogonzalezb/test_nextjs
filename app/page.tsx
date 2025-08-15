@@ -49,7 +49,7 @@ export default function Page() {
   const imgInputRef = useRef<HTMLInputElement | null>(null);
   const [seq, setSeq] = useState(3);
   const [theme, setTheme] = useState<"light" | "dark">("light");
-  const [edgeMode, setEdgeMode] = useState(false);
+  const hoverDetachRef = useRef<null | (() => void)>(null);
 
   // Paletas de color (light/dark)
   const colors = useMemo(() => {
@@ -85,10 +85,11 @@ export default function Page() {
       border: `1px solid ${colors.btnBorder}`,
       color: colors.btnText,
       fontWeight: 700,
-      padding: "8px 12px",
-      borderRadius: 10,
+      padding: "12px 18px",
+      borderRadius: 12,
       cursor: "pointer",
       boxShadow: "0 6px 16px rgba(2,6,23,0.12)",
+      fontSize: 16,
     }),
     [colors]
   );
@@ -180,12 +181,14 @@ export default function Page() {
 
   // EdgeHandles: agrega "círculos" (handles) al acercarse a un nodo para iniciar una arista
   const setupEdgeHandles = (cy: cytoscape.Core) => {
+    ehRef.current?.destroy();
+    cy.off("ehcomplete");
+    cy.off("ehstop");
     const eh = (cy as any).edgehandles({
       toggleOffOnLeave: true,
       handleNodes: "node",
       edgeType: () => "flat",
       loopAllowed: () => false,
-      handlePosition: "bottom",
       handleColor: colors.nodeBorder,
       handleLineWidth: 2,
       handleOutlineColor: "#ffffff",
@@ -198,9 +201,9 @@ export default function Page() {
       ghostEdgeColor: colors.edge,
       ghostEdgeWidth: 2,
     });
+    eh.enableDrawMode();
     eh.enable();
     ehRef.current = eh;
-    eh.disable();
 
     let completed = false;
 
@@ -250,6 +253,51 @@ export default function Page() {
     });
   };
 
+  const attachHoverHandles = (cy: cytoscape.Core) => {
+    const dots: HTMLDivElement[] = [];
+    const hide = () => {
+      dots.forEach((d) => d.remove());
+      dots.length = 0;
+    };
+    const show = (evt: cytoscape.EventObject) => {
+      hide();
+      const bb = evt.target.renderedBoundingBox();
+      const rect = cy.container()!.getBoundingClientRect();
+      const size = 12;
+      const positions = [
+        { left: rect.left + bb.x1 + bb.w / 2 - size / 2, top: rect.top + bb.y1 - size / 2 },
+        { left: rect.left + bb.x2 - size / 2, top: rect.top + bb.y1 + bb.h / 2 - size / 2 },
+        { left: rect.left + bb.x1 + bb.w / 2 - size / 2, top: rect.top + bb.y2 - size / 2 },
+        { left: rect.left + bb.x1 - size / 2, top: rect.top + bb.y1 + bb.h / 2 - size / 2 },
+      ];
+      positions.forEach((p) => {
+        const el = document.createElement("div");
+        Object.assign(el.style, {
+          position: "fixed",
+          width: `${size}px`,
+          height: `${size}px`,
+          borderRadius: "50%",
+          background: colors.edge,
+          left: `${p.left}px`,
+          top: `${p.top}px`,
+          pointerEvents: "none",
+          zIndex: 999,
+        });
+        document.body.appendChild(el);
+        dots.push(el);
+      });
+    };
+    cy.on("mouseover", "node", show);
+    cy.on("mouseout", "node", hide);
+    cy.on("pan zoom", hide);
+    return () => {
+      cy.off("mouseover", "node", show);
+      cy.off("mouseout", "node", hide);
+      cy.off("pan zoom", hide);
+      hide();
+    };
+  };
+
   // Editor inline para título de nodo
   const [nodeEditor, setNodeEditor] = useState<{
     visible: boolean;
@@ -280,6 +328,7 @@ export default function Page() {
   const onCyReady = (cy: cytoscape.Core) => {
     cyRef.current = cy;
     setupEdgeHandles(cy);
+    hoverDetachRef.current = attachHoverHandles(cy);
 
     // Asegurar que se puedan ARRÁSTRAR los nodos
     cy.nodes().grabify();
@@ -301,6 +350,14 @@ export default function Page() {
     window.addEventListener("keydown", keyHandler);
     cy.one("destroy", () => window.removeEventListener("keydown", keyHandler));
   };
+
+  useEffect(() => {
+    const cy = cyRef.current;
+    if (!cy) return;
+    setupEdgeHandles(cy);
+    hoverDetachRef.current?.();
+    hoverDetachRef.current = attachHoverHandles(cy);
+  }, [colors]);
 
   // Crear nodo de texto
   const addNode = () => {
@@ -342,18 +399,6 @@ export default function Page() {
 
     // Limpia input
     if (imgInputRef.current) imgInputRef.current.value = "";
-  };
-
-  // Toggle de modo de aristas
-  const toggleEdgeMode = () => {
-    const eh = ehRef.current;
-    if (!eh) return;
-    if (edgeMode) {
-      eh.disable();
-    } else {
-      eh.enable();
-    }
-    setEdgeMode((s) => !s);
   };
 
   // Guardar cambio desde editor inline
@@ -421,16 +466,6 @@ export default function Page() {
       >
         <button onClick={addNode} style={{ ...buttonBase }}>+ Nodo</button>
         <button onClick={triggerImportImage} style={{ ...buttonBase }}>🖼️ Imagen</button>
-        <button
-          onClick={toggleEdgeMode}
-          style={{
-            ...buttonBase,
-            background: edgeMode ? colors.edge : "#ffffff",
-            color: edgeMode ? "#ffffff" : colors.btnText,
-          }}
-        >
-          {edgeMode ? "✏️ Conexión" : "🔗 Conexión"}
-        </button>
         <button
           onClick={() => setTheme((t) => (t === "light" ? "dark" : "light"))}
           title="Cambiar tema"
