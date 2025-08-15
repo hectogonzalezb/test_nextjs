@@ -79,11 +79,11 @@ export default function Page() {
       border: `1px solid ${colors.btnBorder}`,
       color: colors.btnText,
       fontWeight: 700,
-      padding: "12px 18px",
-      borderRadius: 12,
+      padding: "16px 24px",
+      borderRadius: 16,
       cursor: "pointer",
       boxShadow: "0 6px 16px rgba(2,6,23,0.12)",
-      fontSize: 16,
+      fontSize: 20,
     }),
     [colors]
   );
@@ -226,6 +226,18 @@ export default function Page() {
     openInlineEditor(newNode);
   }, [seq, openInlineEditor]);
 
+  const zoomIn = useCallback(() => {
+    const cy = cyRef.current; if (!cy) return;
+    const level = Math.min(cy.maxZoom(), cy.zoom() * 1.2);
+    cy.zoom({ level, renderedPosition: { x: cy.width() / 2, y: cy.height() / 2 } });
+  }, []);
+
+  const zoomOut = useCallback(() => {
+    const cy = cyRef.current; if (!cy) return;
+    const level = Math.max(cy.minZoom(), cy.zoom() / 1.2);
+    cy.zoom({ level, renderedPosition: { x: cy.width() / 2, y: cy.height() / 2 } });
+  }, []);
+
   useEffect(() => {
     const keyHandler = (ev: KeyboardEvent) => {
       const cy = cyRef.current;
@@ -249,6 +261,8 @@ export default function Page() {
   const onCyReady = (cy: cytoscape.Core) => {
     cyRef.current = cy;
 
+    let drawing = false;
+
     // Asegurar que se puedan ARRÁSTRAR los nodos
     cy.nodes().grabify();
 
@@ -269,9 +283,13 @@ export default function Page() {
     });
 
     cy.on("cxttapstart", "node", (e) => {
+      if (drawing) return;
+      drawing = true;
       eh.start(e.target);
     });
     cy.on("cxttapend", () => {
+      if (!drawing) return;
+      drawing = false;
       eh.stop();
     });
 
@@ -318,17 +336,17 @@ export default function Page() {
   };
 
   return (
-    <div style={{ position: "relative", height: "100vh", width: "100vw", background: colors.bg, color: colors.text }}>
+    <div style={{ position: "relative", height: "100vh", width: "100vw", overflow: "auto", background: colors.bg, color: colors.text }}>
       <CytoscapeComponent
         cy={(cy: any) => onCyReady(cy)}
         elements={elements as any}
         layout={layout as any}
-        style={{ width: "100%", height: "100%" }}
+        style={{ width: 2000, height: 2000 }}
         stylesheet={stylesheet as any}
         boxSelectionEnabled={true}
         autoungrabify={false}
-        minZoom={0.3}
-        maxZoom={2.5}
+        minZoom={0.1}
+        maxZoom={4}
       />
 
       {/* Editor inline */}
@@ -367,12 +385,15 @@ export default function Page() {
           top: 16,
           right: 16,
           display: "flex",
+          flexDirection: "column",
           gap: 8,
           zIndex: 10,
         }}
       >
         <button onClick={addNode} style={{ ...buttonBase }}>+ Nodo</button>
         <button onClick={triggerImportImage} style={{ ...buttonBase }}>🖼️ Imagen</button>
+        <button onClick={zoomIn} style={{ ...buttonBase }}>Zoom +</button>
+        <button onClick={zoomOut} style={{ ...buttonBase }}>Zoom -</button>
         <button
           onClick={() => setTheme((t) => (t === "light" ? "dark" : "light"))}
           title="Cambiar tema"
