@@ -49,23 +49,23 @@ export default function Page() {
   const colors = useMemo(() => {
     if (theme === "dark") {
       return {
-        bg: "#0b1220",
+        bg: "#0f172a", // Fondo oscuro
         text: "#e5e7eb",
-        nodeBg: "#0f172a",
+        nodeBg: "#1e293b",
         nodeBorder: "#475569",
         nodeHalo: "rgba(30, 41, 59, 0.35)",
         edge: "#60a5fa",
         border: "rgba(148,163,184,0.25)",
-        btnText: "#0f172a",
+        btnText: "#e5e7eb",    
         btnBorder: "#1f2937",
       } as const;
     }
     return {
-      bg: "#f7f8fb",
+      bg: "#ffffff", // Fondo blanco
       text: "#0f172a",
       nodeBg: "#ffffff",
-      nodeBorder: "#334155", // gris azulado oscuro
-      nodeHalo: "rgba(30, 41, 59, 0.15)",
+      nodeBorder: "#334155",
+      nodeHalo: "rgba(30, 41, 59, 0.15)", 
       edge: "#2563eb",
       border: "rgba(15,23,42,0.12)",
       btnText: "#0f172a",
@@ -107,44 +107,56 @@ export default function Page() {
           textValign: "center",
           textHalign: "center",
           textMarginY: 4,
-          shadowBlur: 18,
-          shadowOpacity: 1,
-          shadowColor: colors.nodeHalo,
+        },
+      },
+      // Selector específico para nodos con imagen
+      {
+        selector: "node[img]",
+        style: {
           'background-fit': 'cover',
           'background-image': 'data(img)'
+        }
+      },
+      { selector: "node:selected", 
+        style: { 
+          borderWidth: 3, 
+          borderColor: colors.edge 
+        } 
+      },
+      {
+        selector: "edge",
+        style: {
+          curveStyle: "bezier",
+          controlPointStepSize: 32,
+          width: 2,
+          lineColor: colors.edge,
+          targetArrowColor: colors.edge,
+          targetArrowShape: "triangle",
+          arrowScale: 1,
+          lineStyle: "dashed",
+          lineDashPattern: [10, 10],
         },
+      },
+      { selector: "edge:selected", 
+        style: { 
+          width: 3 
+        } 
+      },
+      {
+        selector: ".eh-preview, .eh-ghost-edge",
+        style: {
+          lineColor: colors.edge,
+          targetArrowColor: colors.edge,
+          targetArrowShape: "triangle",
+          arrowScale: 1,
+          width: 2,
+          lineStyle: "dashed",
+          lineDashPattern: [10, 10],
         },
-        { selector: "node:selected", style: { borderWidth: 3, borderColor: colors.edge } },
-        {
-          selector: "edge",
-          style: {
-            curveStyle: "bezier",
-            controlPointStepSize: 32,
-            width: 2,
-            lineColor: colors.edge,
-            targetArrowColor: colors.edge,
-            targetArrowShape: "triangle",
-            arrowScale: 1,
-            lineStyle: "dashed",
-            lineDashPattern: [10, 10],
-          },
-        },
-        { selector: "edge:selected", style: { width: 3 } },
-        {
-          selector: ".eh-preview, .eh-ghost-edge",
-          style: {
-            lineColor: colors.edge,
-            targetArrowColor: colors.edge,
-            targetArrowShape: "triangle",
-            arrowScale: 1,
-            width: 2,
-            lineStyle: "dashed",
-            lineDashPattern: [10, 10],
-          },
-        },
-      ],
-      [colors]
-    );
+      },
+    ],
+    [colors]
+  );
 
   // Animación continua: desplazar guiones en edges con clase .animated (gratis)
   useEffect(() => {
@@ -203,9 +215,7 @@ export default function Page() {
   const addNode = useCallback(() => {
     const cy = cyRef.current;
     if (!cy) return;
-    const id = `n${seq}`;
-    const label = `Bloque ${seq}`;
-    setSeq((s) => s + 1);
+    const id = `n${Date.now()}`;
 
     // Posicionar cerca del centroide actual
     const nodes = cy.nodes();
@@ -221,10 +231,11 @@ export default function Page() {
       };
     }
 
-    const newNode = cy.add({ data: { id, label }, position: pos });
+    const nodeCount = cy.nodes().length;
+    const newLabel = `Nodo ${nodeCount + 1}`;
+    const newNode = cy.add({ data: { id, label: newLabel }, position: pos });
     cy.fit(undefined, 60);
-    openInlineEditor(newNode);
-  }, [seq, openInlineEditor]);
+  }, []);
 
   const zoomIn = useCallback(() => {
     const cy = cyRef.current; if (!cy) return;
@@ -264,24 +275,36 @@ export default function Page() {
 
     let drawing = false;
 
-    let drawing = false;
-
-    // Asegurar que se puedan ARRÁSTRAR los nodos
     cy.nodes().grabify();
-
-    // Doble click para renombrar nodo inline
-    cy.on("dblclick", "node", (e) => openInlineEditor(e.target as any));
 
     const eh = cy.edgehandles({
       handleSize: 0,
       preview: true,
-      canConnect: (source, target) => !source.same(target),
+      loopAllowed: () => false,
+      canConnect: (source, target) => {
+        if (source.same(target)) return false;
+        
+        // Verificar ciclo antes de permitir la conexión
+        const nodes = cy.nodes().map(n => n.id());
+        const existingEdges = cy.edges().map(e => ({
+          source: e.source().id(),
+          target: e.target().id()
+        }));
+        
+        const newEdge = {
+          source: source.id(),
+          target: target.id()
+        };
+
+        return !hasCycle(nodes, [...existingEdges, newEdge]);
+      },
       edgeParams: (source, target) => ({
         data: {
-          id: `e${Date.now()}`,
+          id: `e${source.id()}-${target.id()}-${Date.now()}`,
           source: source.id(),
           target: target.id(),
         },
+        classes: 'animated'
       }),
     });
 
@@ -290,6 +313,7 @@ export default function Page() {
       drawing = true;
       eh.start(e.target);
     });
+
     cy.on("cxttapend", () => {
       if (!drawing) return;
       drawing = false;
@@ -297,17 +321,14 @@ export default function Page() {
     });
 
     cy.on("ehcomplete", (e, sourceNode, targetNode, addedEdge) => {
-      const nodes = cy.nodes().map((n) => n.id());
-      const edgesNow = cy
-        .edges()
-        .map((ed) => ({ source: ed.source().id(), target: ed.target().id() }));
-      if (hasCycle(nodes, edgesNow)) {
-        alert("⚠️ Conexión rechazada: crearía un ciclo en el DAG.");
-        addedEdge.remove();
-      } else {
-        addedEdge.addClass("animated");
-      }
+      // Solo agregar la clase animated, ya validamos el ciclo en canConnect
+      addedEdge.addClass("animated");
     });
+
+    // Ajustar zoom inicial
+    setTimeout(() => {
+      cy.fit(undefined, 80);
+    }, 100);
   }, [openInlineEditor]);
 
   // Importar imagen como nodo (imagen contenida)
@@ -326,95 +347,152 @@ export default function Page() {
     cy.fit(undefined, 60);
 
     // Limpia input
-    if (imgInputRef.current) imgInputRef.current.value = "";
-  };
-
-  // Guardar cambio desde editor inline
-  const commitNodeEdit = () => {
-    if (!nodeEditor.visible || !nodeEditor.id) return;
-    const cy = cyRef.current; if (!cy) return;
-    const n = cy.getElementById(nodeEditor.id);
-    n.data("label", nodeEditor.value);
-    setNodeEditor((s) => ({ ...s, visible: false, id: null }));
+    if (imgInputRef.current) {
+      imgInputRef.current.value = "";
+    }
   };
 
   return (
-
-    <div style={{ position: "relative", height: "100vh", width: "100vw", overflow: "auto", background: colors.bg, color: colors.text }}>
-
-      <CytoscapeComponent
-        cy={onCyReady}
-        elements={elements as any}
-        layout={layout as any}
-        style={{ width: 2000, height: 2000 }}
-        stylesheet={stylesheet as any}
-        boxSelectionEnabled={true}
-        autoungrabify={false}
-        minZoom={0.1}
-        maxZoom={4}
-      />
-
-      {/* Editor inline */}
-      {nodeEditor.visible && (
-        <input
-          autoFocus
-          value={nodeEditor.value}
-          onChange={(e) => setNodeEditor((s) => ({ ...s, value: e.target.value }))}
-          onBlur={commitNodeEdit}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") commitNodeEdit();
-            if (e.key === "Escape") setNodeEditor((s) => ({ ...s, visible: false, id: null }));
-          }}
-          style={{
-            position: "fixed",
-            left: nodeEditor.x,
-            top: nodeEditor.y,
-            width: Math.max(120, nodeEditor.w),
-            height: nodeEditor.h,
-            padding: "6px 10px",
-            borderRadius: 10,
-            border: `2px solid ${colors.edge}`,
-            outline: "none",
-            background: "#ffffff",
-            color: colors.text,
-            boxShadow: "0 10px 30px rgba(2,6,23,0.15)",
-            fontSize: 13,
-            fontWeight: 600,
-          }}
-        />
-      )}
-
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        height: "100vh",
+        overflow: "hidden",
+      }}
+    >
       <div
         style={{
-          position: "fixed",
-          top: 16,
-          right: 16,
           display: "flex",
-          flexDirection: "column",
-          gap: 8,
+          justifyContent: "space-between",
+          alignItems: "center",
+          padding: "8px 16px",
+          background: colors.bg,
+          borderBottom: `1px solid ${colors.border}`,
           zIndex: 10,
         }}
       >
-        <button onClick={addNode} style={{ ...buttonBase }}>+ Nodo</button>
-        <button onClick={triggerImportImage} style={{ ...buttonBase }}>🖼️ Imagen</button>
-        <button onClick={zoomIn} style={{ ...buttonBase }}>Zoom +</button>
-        <button onClick={zoomOut} style={{ ...buttonBase }}>Zoom -</button>
-        <button
-          onClick={() => setTheme((t) => (t === "light" ? "dark" : "light"))}
-          title="Cambiar tema"
-          style={{ ...buttonBase }}
-        >
-          {theme === "light" ? "🌙" : "☀️"}
-        </button>
+        <h1 style={{ margin: 0, fontSize: 24, color: colors.text }}>
+          Editor de flujo (DAG)
+        </h1>
+        <div style={{ display: "flex", alignItems: "center" }}>
+          <button
+            onClick={addNode}
+            style={buttonBase}
+            title="Agregar nodo (Bloque)"
+          >
+            + Bloque
+          </button>
+          <button
+            onClick={triggerImportImage}
+            style={{ ...buttonBase, marginLeft: 8 }}
+            title="Importar imagen como nodo"
+          >
+            🖼️ Imagen
+          </button>
+          <button
+            onClick={zoomIn}
+            style={{ ...buttonBase, marginLeft: 8 }}
+            title="Acercar (Ctrl + ↑)"
+          >
+            🔍 +
+          </button>
+          <button
+            onClick={zoomOut}
+            style={{ ...buttonBase, marginLeft: 8 }}
+            title="Alejar (Ctrl + ↓)"
+          >
+            🔍 −
+          </button>
+          <select
+            value={theme}
+            onChange={(e) => setTheme(e.target.value as "light" | "dark")}
+            style={{
+              ...buttonBase,
+              marginLeft: 8,
+              padding: "8px 16px",
+              borderRadius: 16,
+              border: `1px solid ${colors.btnBorder}`,
+              background: colors.bg,
+              color: colors.text,
+              fontSize: 16,
+              appearance: "none",
+              backgroundImage:
+                theme === "dark"
+                  ? 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%23e5e7eb\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3E%3Cpath d=\'M12 2a10 10 0 0 0 0 20 10 10 0 0 0 0-20z\'/%3E%3C/svg%3E")'
+                  : 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%230f172a\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3E%3Cpath d=\'M12 2a10 10 0 0 0 0 20 10 10 0 0 0 0-20z\'/%3E%3C/svg%3E")',
+              backgroundSize: "16px 16px",
+              backgroundPosition: "right 8px center",
+              backgroundRepeat: "no-repeat",
+            }}
+          >
+            <option value="light">🌞 Claro</option>
+            <option value="dark">🌜 Oscuro</option>
+          </select>
+        </div>
       </div>
-
-      <input
-        ref={imgInputRef}
-        type="file"
-        accept="image/*"
-        onChange={onImportImage}
-        style={{ display: "none" }}
-      />
+      <div style={{ position: "relative", flex: 1 }}>
+        <CytoscapeComponent
+          cy={onCyReady}
+          elements={elements as any}
+          layout={layout as any}
+          style={{ width: "100%", height: "100%" }}
+          stylesheet={stylesheet as any}
+          boxSelectionEnabled={true}
+          autoungrabify={false}
+          minZoom={0.1}
+          maxZoom={4}
+        />
+        {nodeEditor.visible && (
+          <div
+            style={{
+              position: "absolute",
+              left: nodeEditor.x,
+              top: nodeEditor.y,
+              width: nodeEditor.w,
+              height: nodeEditor.h,
+              pointerEvents: "none",
+            }}
+          >
+            <input
+              type="text"
+              value={nodeEditor.value}
+              onChange={(e) =>
+                setNodeEditor((n) => ({ ...n, value: e.target.value }))
+              }
+              onBlur={() => {
+                const cy = cyRef.current;
+                if (!cy) return;
+                const node = cy.getElementById(nodeEditor.id!);
+                if (node && nodeEditor.value.trim() !== "") {
+                  node.data("label", nodeEditor.value.trim());
+                }
+                setNodeEditor((n) => ({ ...n, visible: false }));
+              }}
+              style={{
+                width: "100%",
+                height: "100%",
+                padding: 8,
+                borderRadius: 8,
+                border: `1px solid ${colors.btnBorder}`,
+                background: colors.nodeBg,
+                color: colors.text,
+                fontSize: 16,
+                fontWeight: 500,
+                outline: "none",
+                pointerEvents: "auto",
+              }}
+            />
+          </div>
+        )}
+        <input
+          ref={imgInputRef}
+          type="file"
+          accept="image/*"
+          onChange={onImportImage}
+          style={{ display: "none" }}
+        />
+      </div>
     </div>
   );
 }
