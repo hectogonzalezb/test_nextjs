@@ -12,7 +12,7 @@ if (typeof window !== "undefined" && !(globalThis as any).__EDGEHANDLES_REGISTER
 }
 
 // React wrapper para Cytoscape (sin SSR)
-const CytoscapeComponent = dynamic(() => import("react-cytoscapejs"), {
+const CytoscapeComponent: any = dynamic(() => import("react-cytoscapejs"), {
   ssr: false,
   loading: () => <div style={{ padding: 16 }}>Cargando editor…</div>,
 });
@@ -79,7 +79,7 @@ export default function Page() {
   }, [theme]);
 
   // Estilos (aristas animadas gratis con dashed)
-  const stylesheet = useMemo<cytoscape.Stylesheet[]>(
+  const stylesheet = useMemo<any[]>(
     () => [
       {
         selector: "node",
@@ -183,10 +183,14 @@ export default function Page() {
       ghostEdgeColor: colors.edge,
       ghostEdgeWidth: 2,
     });
+    eh.enable();
     ehRef.current = eh;
 
-    // Validación al completar conexión
-    cy.on("ehcomplete", (_evt, data) => {
+    let completed = false;
+
+    // Validación al completar conexión entre nodos existentes
+    cy.on("ehcomplete", (_evt: any, data: any) => {
+      completed = true;
       const { source, target, edge } = data as any;
       if (!source || !target || !edge) return;
 
@@ -209,6 +213,25 @@ export default function Page() {
 
       edge.addClass("animated");
     });
+
+    // Si se suelta en el fondo, crear nuevo nodo y arista
+    cy.on("ehstop", (evt: any, source: any) => {
+      if (completed) {
+        completed = false;
+        return;
+      }
+
+      const pos = evt.position;
+      setSeq((s) => {
+        const id = `n${s}`;
+        const label = `Bloque ${s}`;
+        const newNode = cy.add({ data: { id, label }, position: pos });
+        cy.add({ data: { id: `e${Date.now()}`, source: source.id(), target: id }, classes: "animated" });
+        cy.fit(undefined, 60);
+        openInlineEditor(newNode);
+        return s + 1;
+      });
+    });
   };
 
   // Editor inline para título de nodo
@@ -225,7 +248,7 @@ export default function Page() {
   const openInlineEditor = (n: cytoscape.NodeSingular) => {
     const cy = cyRef.current; if (!cy) return;
     const bb = n.renderedBoundingBox();
-    const rect = cy.container().getBoundingClientRect();
+    const rect = cy.container()!.getBoundingClientRect();
     const padding = 8;
     setNodeEditor({
       visible: true,
@@ -260,7 +283,7 @@ export default function Page() {
       }
     };
     window.addEventListener("keydown", keyHandler);
-    cy.once("destroy", () => window.removeEventListener("keydown", keyHandler));
+    cy.one("destroy", () => window.removeEventListener("keydown", keyHandler));
   };
 
   // Crear nodo de texto
