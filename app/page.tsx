@@ -264,6 +264,8 @@ export default function Page() {
 
     let drawing = false;
 
+    let drawing = false;
+
     // Asegurar que se puedan ARRÁSTRAR los nodos
     cy.nodes().grabify();
 
@@ -337,12 +339,14 @@ export default function Page() {
   };
 
   return (
-    <div style={{ position: "relative", height: "100vh", width: "100vw", overflow: "hidden", background: colors.bg, color: colors.text }}>
+
+    <div style={{ position: "relative", height: "100vh", width: "100vw", overflow: "auto", background: colors.bg, color: colors.text }}>
+
       <CytoscapeComponent
         cy={onCyReady}
         elements={elements as any}
         layout={layout as any}
-        style={{ width: "100%", height: "100%" }}
+        style={{ width: 2000, height: 2000 }}
         stylesheet={stylesheet as any}
         boxSelectionEnabled={true}
         autoungrabify={false}
