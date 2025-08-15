@@ -258,8 +258,11 @@ export default function Page() {
     return () => window.removeEventListener("keydown", keyHandler);
   }, [addNode]);
 
-  const onCyReady = (cy: cytoscape.Core) => {
+  const onCyReady = useCallback((cy: cytoscape.Core) => {
     cyRef.current = cy;
+    cy.container().addEventListener("contextmenu", (e) => e.preventDefault());
+
+    let drawing = false;
 
     let drawing = false;
 
@@ -305,7 +308,7 @@ export default function Page() {
         addedEdge.addClass("animated");
       }
     });
-  };
+  }, [openInlineEditor]);
 
   // Importar imagen como nodo (imagen contenida)
   const triggerImportImage = () => imgInputRef.current?.click();
@@ -336,9 +339,11 @@ export default function Page() {
   };
 
   return (
+
     <div style={{ position: "relative", height: "100vh", width: "100vw", overflow: "auto", background: colors.bg, color: colors.text }}>
+
       <CytoscapeComponent
-        cy={(cy: any) => onCyReady(cy)}
+        cy={onCyReady}
         elements={elements as any}
         layout={layout as any}
         style={{ width: 2000, height: 2000 }}
