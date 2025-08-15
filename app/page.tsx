@@ -49,6 +49,7 @@ export default function Page() {
   const imgInputRef = useRef<HTMLInputElement | null>(null);
   const [seq, setSeq] = useState(3);
   const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [edgeMode, setEdgeMode] = useState(false);
 
   // Paletas de color (light/dark)
   const colors = useMemo(() => {
@@ -77,6 +78,20 @@ export default function Page() {
       btnBorder: "#cbd5e1",
     } as const;
   }, [theme]);
+
+  const buttonBase = useMemo<React.CSSProperties>(
+    () => ({
+      background: "#ffffff",
+      border: `1px solid ${colors.btnBorder}`,
+      color: colors.btnText,
+      fontWeight: 700,
+      padding: "8px 12px",
+      borderRadius: 10,
+      cursor: "pointer",
+      boxShadow: "0 6px 16px rgba(2,6,23,0.12)",
+    }),
+    [colors]
+  );
 
   // Estilos (aristas animadas gratis con dashed)
   const stylesheet = useMemo<cytoscape.Stylesheet[]>(
@@ -184,6 +199,7 @@ export default function Page() {
       ghostEdgeWidth: 2,
     });
     ehRef.current = eh;
+    eh.disable();
 
     // Validación al completar conexión
     cy.on("ehcomplete", (_evt, data) => {
@@ -305,6 +321,18 @@ export default function Page() {
     if (imgInputRef.current) imgInputRef.current.value = "";
   };
 
+  // Toggle de modo de aristas
+  const toggleEdgeMode = () => {
+    const eh = ehRef.current;
+    if (!eh) return;
+    if (edgeMode) {
+      eh.disable();
+    } else {
+      eh.enable();
+    }
+    setEdgeMode((s) => !s);
+  };
+
   // Guardar cambio desde editor inline
   const commitNodeEdit = () => {
     if (!nodeEditor.visible || !nodeEditor.id) return;
@@ -358,68 +386,44 @@ export default function Page() {
         />
       )}
 
-      {/* Botón flotante: Crear nodo (abajo al centro, BLANCO) */}
-      <button
-        onClick={addNode}
+      <div
         style={{
           position: "fixed",
-          left: "50%",
-          bottom: 24,
-          transform: "translateX(-50%)",
-          background: "#ffffff",
-          border: `1px solid ${colors.btnBorder}`,
-          color: colors.btnText,
-          fontWeight: 700,
-          padding: "11px 16px",
-          borderRadius: 14,
-          cursor: "pointer",
-          boxShadow: "0 10px 30px rgba(2,6,23,0.15)",
-        }}
-      >
-        + Crear nodo
-      </button>
-
-      {/* Botón flotante: Importar imagen como nodo */}
-      <button
-        onClick={triggerImportImage}
-        style={{
-          position: "fixed",
-          left: 24,
-          bottom: 24,
-          background: "#ffffff",
-          border: `1px solid ${colors.btnBorder}`,
-          color: colors.btnText,
-          fontWeight: 700,
-          padding: "10px 14px",
-          borderRadius: 12,
-          cursor: "pointer",
-          boxShadow: "0 8px 24px rgba(2,6,23,0.12)",
-        }}
-      >
-        🖼️ Importar imagen
-      </button>
-      <input ref={imgInputRef} type="file" accept="image/*" onChange={onImportImage} style={{ display: "none" }} />
-
-      {/* Botón flotante: Cambio de tema */}
-      <button
-        onClick={() => setTheme((t) => (t === "light" ? "dark" : "light"))}
-        title="Cambiar tema"
-        style={{
-          position: "fixed",
-          right: 16,
           top: 16,
-          background: "#ffffff",
-          border: `1px solid ${colors.btnBorder}`,
-          color: colors.btnText,
-          fontWeight: 700,
-          padding: "8px 12px",
-          borderRadius: 10,
-          cursor: "pointer",
-          boxShadow: "0 6px 16px rgba(2,6,23,0.12)",
+          right: 16,
+          display: "flex",
+          gap: 8,
+          zIndex: 10,
         }}
       >
-        {theme === "light" ? "🌙 Dark" : "☀️ Light"}
-      </button>
+        <button onClick={addNode} style={{ ...buttonBase }}>+ Nodo</button>
+        <button onClick={triggerImportImage} style={{ ...buttonBase }}>🖼️ Imagen</button>
+        <button
+          onClick={toggleEdgeMode}
+          style={{
+            ...buttonBase,
+            background: edgeMode ? colors.edge : "#ffffff",
+            color: edgeMode ? "#ffffff" : colors.btnText,
+          }}
+        >
+          {edgeMode ? "✏️ Conexión" : "🔗 Conexión"}
+        </button>
+        <button
+          onClick={() => setTheme((t) => (t === "light" ? "dark" : "light"))}
+          title="Cambiar tema"
+          style={{ ...buttonBase }}
+        >
+          {theme === "light" ? "🌙" : "☀️"}
+        </button>
+      </div>
+
+      <input
+        ref={imgInputRef}
+        type="file"
+        accept="image/*"
+        onChange={onImportImage}
+        style={{ display: "none" }}
+      />
     </div>
   );
 }
