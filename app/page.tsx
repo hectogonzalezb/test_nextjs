@@ -44,6 +44,7 @@ export default function Page() {
   const imgInputRef = useRef<HTMLInputElement | null>(null);
   const [seq, setSeq] = useState(3);
   const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [expanded, setExpanded] = useState(false);
 
   // Paletas de color (light/dark)
   const colors = useMemo(() => {
@@ -61,7 +62,7 @@ export default function Page() {
       } as const;
     }
     return {
-      bg: "#f7f8fb",
+      bg: "#ffffff",
       text: "#0f172a",
       nodeBg: "#ffffff",
       nodeBorder: "#334155", // gris azulado oscuro
@@ -73,20 +74,29 @@ export default function Page() {
     } as const;
   }, [theme]);
 
-  const buttonBase = useMemo<React.CSSProperties>(
+  const fabStyle = useMemo<React.CSSProperties>(
     () => ({
-      background: "#ffffff",
-      border: `1px solid ${colors.btnBorder}`,
-      color: colors.btnText,
+      width: 56,
+      height: 56,
+      borderRadius: "50%",
+      border: "none",
+      background: colors.edge,
+      color: "#fff",
       fontWeight: 700,
-      padding: "16px 24px",
-      borderRadius: 16,
+      fontSize: 24,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
       cursor: "pointer",
-      boxShadow: "0 6px 16px rgba(2,6,23,0.12)",
-      fontSize: 20,
+      boxShadow: "0 6px 16px rgba(0,0,0,0.15)",
     }),
     [colors]
   );
+
+  useEffect(() => {
+    const cy = cyRef.current;
+    if (cy) cy.resize();
+  }, [expanded]);
 
   // Estilos (aristas animadas gratis con dashed)
   const stylesheet = useMemo<any[]>(
@@ -339,20 +349,79 @@ export default function Page() {
   };
 
   return (
+    <div
+      style={{
+        position: "relative",
+        minHeight: "100vh",
+        background: colors.bg,
+        color: colors.text,
+      }}
+    >
+      {expanded && (
+        <div
+          onClick={() => setExpanded(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.4)",
+            backdropFilter: "blur(4px)",
+            zIndex: 5,
+          }}
+        />
+      )}
 
-    <div style={{ position: "relative", height: "100vh", width: "100vw", overflow: "auto", background: colors.bg, color: colors.text }}>
+      <div
+        style={{
+          width: expanded ? "90vmin" : "80vmin",
+          height: expanded ? "90vmin" : "80vmin",
+          margin: expanded ? 0 : "40px auto",
+          position: expanded ? "fixed" : "relative",
+          top: expanded ? "50%" : undefined,
+          left: expanded ? "50%" : undefined,
+          transform: expanded ? "translate(-50%, -50%)" : undefined,
+          borderRadius: 16,
+          boxShadow: "0 10px 30px rgba(2,6,23,0.15)",
+          overflow: "hidden",
+          zIndex: 10,
+          background: colors.bg,
+        }}
+      >
+        <CytoscapeComponent
+          cy={onCyReady}
+          elements={elements as any}
+          layout={layout as any}
+          style={{ width: "100%", height: "100%" }}
+          stylesheet={stylesheet as any}
+          boxSelectionEnabled={true}
+          autoungrabify={false}
+          minZoom={0.1}
+          maxZoom={4}
+        />
 
-      <CytoscapeComponent
-        cy={onCyReady}
-        elements={elements as any}
-        layout={layout as any}
-        style={{ width: 2000, height: 2000 }}
-        stylesheet={stylesheet as any}
-        boxSelectionEnabled={true}
-        autoungrabify={false}
-        minZoom={0.1}
-        maxZoom={4}
-      />
+        {expanded && (
+          <button
+            onClick={() => setExpanded(false)}
+            style={{
+              position: "absolute",
+              top: 8,
+              right: 8,
+              width: 32,
+              height: 32,
+              borderRadius: "50%",
+              border: "none",
+              background: colors.edge,
+              color: "#fff",
+              fontSize: 18,
+              fontWeight: 700,
+              cursor: "pointer",
+              boxShadow: "0 4px 12px rgba(0,0,0,0.2)",
+            }}
+            title="Cerrar"
+          >
+            ✕
+          </button>
+        )}
+      </div>
 
       {/* Editor inline */}
       {nodeEditor.visible && (
@@ -363,7 +432,8 @@ export default function Page() {
           onBlur={commitNodeEdit}
           onKeyDown={(e) => {
             if (e.key === "Enter") commitNodeEdit();
-            if (e.key === "Escape") setNodeEditor((s) => ({ ...s, visible: false, id: null }));
+            if (e.key === "Escape")
+              setNodeEditor((s) => ({ ...s, visible: false, id: null }));
           }}
           style={{
             position: "fixed",
@@ -384,29 +454,50 @@ export default function Page() {
         />
       )}
 
-      <div
-        style={{
-          position: "fixed",
-          top: 16,
-          right: 16,
-          display: "flex",
-          flexDirection: "column",
-          gap: 8,
-          zIndex: 10,
-        }}
-      >
-        <button onClick={addNode} style={{ ...buttonBase }}>+ Nodo</button>
-        <button onClick={triggerImportImage} style={{ ...buttonBase }}>🖼️ Imagen</button>
-        <button onClick={zoomIn} style={{ ...buttonBase }}>Zoom +</button>
-        <button onClick={zoomOut} style={{ ...buttonBase }}>Zoom -</button>
-        <button
-          onClick={() => setTheme((t) => (t === "light" ? "dark" : "light"))}
-          title="Cambiar tema"
-          style={{ ...buttonBase }}
+      {!expanded && (
+        <div
+          style={{
+            position: "fixed",
+            bottom: 16,
+            right: 16,
+            display: "flex",
+            flexDirection: "column",
+            gap: 12,
+            zIndex: 20,
+          }}
         >
-          {theme === "light" ? "🌙" : "☀️"}
-        </button>
-      </div>
+          <button onClick={addNode} style={{ ...fabStyle }} title="Añadir nodo">
+            +
+          </button>
+          <button
+            onClick={triggerImportImage}
+            style={{ ...fabStyle }}
+            title="Importar imagen"
+          >
+            🖼️
+          </button>
+          <button onClick={zoomIn} style={{ ...fabStyle }} title="Acercar">
+            🔍+
+          </button>
+          <button onClick={zoomOut} style={{ ...fabStyle }} title="Alejar">
+            🔍-
+          </button>
+          <button
+            onClick={() => setTheme((t) => (t === "light" ? "dark" : "light"))}
+            title="Cambiar tema"
+            style={{ ...fabStyle }}
+          >
+            {theme === "light" ? "🌙" : "☀️"}
+          </button>
+          <button
+            onClick={() => setExpanded(true)}
+            style={{ ...fabStyle }}
+            title="Agrandar"
+          >
+            ⛶
+          </button>
+        </div>
+      )}
 
       <input
         ref={imgInputRef}
