@@ -3,13 +3,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import cytoscape from "cytoscape";
-import edgehandles from "cytoscape-edgehandles";
-
-// Registrar plugin una sola vez (HMR-safe)
-if (typeof window !== "undefined" && !(globalThis as any).__EDGEHANDLES_REGISTERED) {
-  cytoscape.use(edgehandles as any);
-  (globalThis as any).__EDGEHANDLES_REGISTERED = true;
-}
 
 // React wrapper para Cytoscape (sin SSR)
 const CytoscapeComponent: any = dynamic(() => import("react-cytoscapejs"), {
@@ -45,11 +38,10 @@ function hasCycle(
 // ---------- Página (app/page.tsx) ----------
 export default function Page() {
   const cyRef = useRef<cytoscape.Core | null>(null);
-  const ehRef = useRef<any>(null);
   const imgInputRef = useRef<HTMLInputElement | null>(null);
   const [seq, setSeq] = useState(3);
   const [theme, setTheme] = useState<"light" | "dark">("light");
-  const hoverDetachRef = useRef<null | (() => void)>(null);
+  const edgeStartRef = useRef<cytoscape.NodeSingular | null>(null);
 
   // Paletas de color (light/dark)
   const colors = useMemo(() => {
@@ -119,39 +111,27 @@ export default function Page() {
           'background-fit': 'cover',
           'background-image': 'data(img)'
         },
-      },
-      { selector: "node:selected", style: { borderWidth: 3, borderColor: colors.edge } },
-      {
-        selector: "edge",
-        style: {
-          curveStyle: "bezier",
-          controlPointStepSize: 32,
-          width: 2,
-          lineColor: colors.edge,
+        },
+        { selector: "node:selected", style: { borderWidth: 3, borderColor: colors.edge } },
+        { selector: "node.edge-start", style: { borderWidth: 3, borderColor: colors.edge } },
+        {
+          selector: "edge",
+          style: {
+            curveStyle: "bezier",
+            controlPointStepSize: 32,
+            width: 2,
+            lineColor: colors.edge,
           targetArrowColor: colors.edge,
           targetArrowShape: "triangle",
           arrowScale: 1,
           lineStyle: "dashed",
           lineDashPattern: [10, 10],
         },
-      },
-      { selector: "edge:selected", style: { width: 3 } },
-      // Handle del plugin
-      {
-        selector: '.eh-handle',
-        style: {
-          'background-color': colors.edge,
-          'width': 14,
-          'height': 14,
-          'shape': 'ellipse',
-          'overlay-opacity': 0,
-          'border-width': 2,
-          'border-color': '#ffffff',
-        }
-      },
-    ],
-    [colors]
-  );
+        },
+        { selector: "edge:selected", style: { width: 3 } },
+      ],
+      [colors]
+    );
 
   // Animación continua: desplazar guiones en edges con clase .animated (gratis)
   useEffect(() => {
@@ -178,125 +158,6 @@ export default function Page() {
   );
 
   const layout = { name: "preset" } as cytoscape.LayoutOptions;
-
-  // EdgeHandles: agrega "círculos" (handles) al acercarse a un nodo para iniciar una arista
-  const setupEdgeHandles = (cy: cytoscape.Core) => {
-    ehRef.current?.destroy();
-    cy.off("ehcomplete");
-    cy.off("ehstop");
-    const eh = (cy as any).edgehandles({
-      toggleOffOnLeave: true,
-      handleNodes: "node",
-      edgeType: () => "flat",
-      loopAllowed: () => false,
-      handleColor: colors.nodeBorder,
-      handleLineWidth: 2,
-      handleOutlineColor: "#ffffff",
-      handleOutlineWidth: 3,
-      handleSize: 18,
-      hoverDelay: 20,
-      edgeParams: () => ({ classes: "animated" }),
-      preview: true,
-      ghost: true,
-      ghostEdgeColor: colors.edge,
-      ghostEdgeWidth: 2,
-    });
-    eh.enableDrawMode();
-    eh.enable();
-    ehRef.current = eh;
-
-    let completed = false;
-
-    // Validación al completar conexión entre nodos existentes
-    cy.on("ehcomplete", (_evt: any, data: any) => {
-      completed = true;
-      const { source, target, edge } = data as any;
-      if (!source || !target || !edge) return;
-
-      if (source.id() === target.id()) {
-        edge.remove();
-        alert("❌ No puedes conectar un nodo consigo mismo.");
-        return;
-      }
-
-      const nodes = cy.nodes().map((n) => n.id());
-      const edgesNow = cy
-        .edges()
-        .map((e) => ({ source: e.source().id(), target: e.target().id() }));
-      const candidate = { source: source.id(), target: target.id() };
-      if (hasCycle(nodes, edgesNow, candidate)) {
-        edge.remove();
-        alert("⚠️ Conexión rechazada: crearía un ciclo en el DAG.");
-        return;
-      }
-
-      edge.addClass("animated");
-    });
-
-    // Si se suelta en el fondo, crear nuevo nodo y arista
-    cy.on("ehstop", (evt: any, source: any) => {
-      if (completed) {
-        completed = false;
-        return;
-      }
-
-      const pos = evt.position;
-      setSeq((s) => {
-        const id = `n${s}`;
-        const label = `Bloque ${s}`;
-        const newNode = cy.add({ data: { id, label }, position: pos });
-        cy.add({ data: { id: `e${Date.now()}`, source: source.id(), target: id }, classes: "animated" });
-        cy.fit(undefined, 60);
-        openInlineEditor(newNode);
-        return s + 1;
-      });
-    });
-  };
-
-  const attachHoverHandles = (cy: cytoscape.Core) => {
-    const dots: HTMLDivElement[] = [];
-    const hide = () => {
-      dots.forEach((d) => d.remove());
-      dots.length = 0;
-    };
-    const show = (evt: cytoscape.EventObject) => {
-      hide();
-      const bb = evt.target.renderedBoundingBox();
-      const rect = cy.container()!.getBoundingClientRect();
-      const size = 12;
-      const positions = [
-        { left: rect.left + bb.x1 + bb.w / 2 - size / 2, top: rect.top + bb.y1 - size / 2 },
-        { left: rect.left + bb.x2 - size / 2, top: rect.top + bb.y1 + bb.h / 2 - size / 2 },
-        { left: rect.left + bb.x1 + bb.w / 2 - size / 2, top: rect.top + bb.y2 - size / 2 },
-        { left: rect.left + bb.x1 - size / 2, top: rect.top + bb.y1 + bb.h / 2 - size / 2 },
-      ];
-      positions.forEach((p) => {
-        const el = document.createElement("div");
-        Object.assign(el.style, {
-          position: "fixed",
-          width: `${size}px`,
-          height: `${size}px`,
-          borderRadius: "50%",
-          background: colors.edge,
-          left: `${p.left}px`,
-          top: `${p.top}px`,
-          pointerEvents: "none",
-          zIndex: 999,
-        });
-        document.body.appendChild(el);
-        dots.push(el);
-      });
-    };
-    cy.on("mouseover", "node", show);
-    cy.on("mouseout", "node", hide);
-    cy.on("pan zoom", hide);
-    return () => {
-      cy.off("mouseover", "node", show);
-      cy.off("mouseout", "node", hide);
-      cy.off("pan zoom", hide);
-      hide();
-    };
-  };
 
   // Editor inline para título de nodo
   const [nodeEditor, setNodeEditor] = useState<{
@@ -327,17 +188,41 @@ export default function Page() {
 
   const onCyReady = (cy: cytoscape.Core) => {
     cyRef.current = cy;
-    setupEdgeHandles(cy);
-    hoverDetachRef.current = attachHoverHandles(cy);
 
     // Asegurar que se puedan ARRÁSTRAR los nodos
     cy.nodes().grabify();
 
     // Doble click para renombrar nodo inline
     cy.on("dblclick", "node", (e) => openInlineEditor(e.target as any));
-    cy.on("cxttap", "node", (e) => openInlineEditor(e.target as any));
 
-    // Delete/Backspace elimina selección
+    // Click derecho: creación de aristas
+    cy.on("cxttap", "node", (e) => {
+      const target = e.target as cytoscape.NodeSingular;
+      const start = edgeStartRef.current;
+      if (!start) {
+        edgeStartRef.current = target;
+        target.addClass("edge-start");
+        return;
+      }
+      edgeStartRef.current = null;
+      start.removeClass("edge-start");
+      if (start.id() === target.id()) return;
+      const nodes = cy.nodes().map((n) => n.id());
+      const edgesNow = cy
+        .edges()
+        .map((ed) => ({ source: ed.source().id(), target: ed.target().id() }));
+      const candidate = { source: start.id(), target: target.id() };
+      if (hasCycle(nodes, edgesNow, candidate)) {
+        alert("⚠️ Conexión rechazada: crearía un ciclo en el DAG.");
+        return;
+      }
+      cy.add({
+        data: { id: `e${Date.now()}`, source: candidate.source, target: candidate.target },
+        classes: "animated",
+      });
+    });
+
+    // Delete/Backspace elimina selección y espacio agrega nodo
     const keyHandler = (ev: KeyboardEvent) => {
       if (ev.key === "Delete" || ev.key === "Backspace") {
         const sel = cy.$(":selected");
@@ -346,21 +231,17 @@ export default function Page() {
           sel.remove();
         }
       }
+      if (ev.code === "Space") {
+        ev.preventDefault();
+        addNode();
+      }
     };
     window.addEventListener("keydown", keyHandler);
     cy.one("destroy", () => window.removeEventListener("keydown", keyHandler));
   };
 
-  useEffect(() => {
-    const cy = cyRef.current;
-    if (!cy) return;
-    setupEdgeHandles(cy);
-    hoverDetachRef.current?.();
-    hoverDetachRef.current = attachHoverHandles(cy);
-  }, [colors]);
-
-  // Crear nodo de texto
-  const addNode = () => {
+    // Crear nodo de texto
+    const addNode = () => {
     const cy = cyRef.current; if (!cy) return;
     const id = `n${seq}`;
     const label = `Bloque ${seq}`;
